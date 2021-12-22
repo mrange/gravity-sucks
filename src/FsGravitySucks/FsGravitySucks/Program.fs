@@ -225,7 +225,6 @@ module GravitySucks =
         |]
       ps, cs
 
-
   let inline mkSystem ps cs dcs rs : ParticleSystem =
     {
       InnerRadius         = 0.5F
@@ -240,23 +239,24 @@ module GravitySucks =
       brokenRocket 
       extraLongChain 
       stiffChain
+      bigDelivery
       =
     let x , y   = 4.0F, 3.0F
     let coff    = if extraLongChain then 1.0F else 0.5F
     let cx, cy  = x + coff, y + coff
+    let dm, dsz = if bigDelivery then 10.0F, 0.25F else 2.0F, 0.125F
     // Ship
-
     let sps0, scs0  = mkBox       5.0F    0.250F x           y          +0.F      0.F
     let sps1 = [| mkParticle 2.0F (x - 0.25F) (y - 0.25F) 0.0F 0.0F |]
     let scs1 = [| mkStick sps0[1] sps1[0]; mkStick sps0[3] sps1[0] |]
     // Connector
-    let cps0, ccs0  = mkTriangle  1.0F    0.125F cx           cy        +0.F      0.F
+    let cps0, ccs0  = mkTriangle  1.0F    0.125F  cx     cy   +0.F      0.F
     // Starbase Alpha
-    let aps0, acs0  = mkBox       100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
+    let aps0, acs0  = mkBox       100.0F  0.500F  0.0F  +2.0F +0.0075F  0.F
     // Starbase Beta
-    let bps0, bcs0  = mkBox       100.0F  0.500F 0.0F        -3.5F      -0.0065F  0.F
+    let bps0, bcs0  = mkBox       100.0F  0.500F  0.0F  -3.5F -0.0065F  0.F
     // Delivery
-    let dps0, dcs0  = mkBox       2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
+    let dps0, dcs0  = mkBox       dm      dsz     0.5F  -3.0F -0.0065F  0.F
 
     let cf = if stiffChain then mkStick else mkRope 0.0F
 
@@ -323,6 +323,7 @@ module GravitySucks =
       let brokenRocket    = false
       let extraLongChain  = false
       let stiffChain      = false
+      let bigDelivery     = false
 
       let particleSystem, connector, alpha, beta, delivery = 
         mkSolarSystem 
@@ -330,6 +331,7 @@ module GravitySucks =
           brokenRocket 
           extraLongChain
           stiffChain
+          bigDelivery
 
       let mutable state = Reset
 
@@ -511,7 +513,7 @@ module GravitySucks =
         for r in particleSystem.Rockets do
           let cto = r.ConnectedTo
           let c   = cto.Current
-          let f   = 100.0F*r.ForceVector pressed
+          let f   = -100.0F*r.ForceVector pressed
           let pt0 = mkPoint c
           let pt1 = mkPoint (c + f)
           let pen = forcePen
