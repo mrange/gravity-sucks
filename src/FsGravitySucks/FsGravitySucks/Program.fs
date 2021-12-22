@@ -114,7 +114,7 @@ module GravitySucks =
       for r in x.Rockets do
         let f = r.ForceVector k
         let p = r.ConnectedTo
-        p.Current <- p.Current - f
+        p.Current <- p.Current + f
       for p in x.Particles do p.Step g
       for i = 0 to 4 do
         for c in x.Constraints        do c.Relax ()
@@ -202,10 +202,9 @@ module GravitySucks =
       |]
     ps, cs
 
-  let mkChain n m f s : Particle array* Constraint array =
-    let inline rope f s = mkRope 0.0F f s
+  let mkChain cf n m f s : Particle array* Constraint array =
     if n < 1 then
-      [||], [|rope f s|]
+      [||], [|cf f s|]
     else
       let m     = m/v1 n
       let inline particle (v : V2) = mkParticle m v.X v.Y 0 0
@@ -216,13 +215,13 @@ module GravitySucks =
         let initer i = particle (start + v1 (i + 1)*diff)
         Array.init n initer
       let cs    =
-        let initer i = rope ps[i] ps[i+1]
+        let initer i = cf ps[i] ps[i+1]
         Array.init (n - 1) initer
       let cs    =
         [|
-          rope f ps[0]
+          cf f ps[0]
           yield! cs
-          rope s ps[n-1]
+          cf s ps[n-1]
         |]
       ps, cs
 
@@ -236,51 +235,66 @@ module GravitySucks =
       DynamicConstraints  = dcs
     }
 
-  let mkSolarSystem () =
-    let x, y        = 4.0F, 3.0F
+  let mkSolarSystem 
+      topHeavy 
+      brokenRocket 
+      extraLongChain 
+      stiffChain
+      =
+    let x , y   = 4.0F, 3.0F
+    let coff    = if extraLongChain then 1.0F else 0.5F
+    let cx, cy  = x + coff, y + coff
     // Ship
-    let bps0, bcs0  = mkBox       5.0F    0.250F x           y          0.F       0.F
+
+    let sps0, scs0  = mkBox       5.0F    0.250F x           y          +0.F      0.F
+    let sps1 = [| mkParticle 2.0F (x - 0.25F) (y - 0.25F) 0.0F 0.0F |]
+    let scs1 = [| mkStick sps0[1] sps1[0]; mkStick sps0[3] sps1[0] |]
     // Connector
-    let bps1, bcs1  = mkTriangle  1.0F    0.125F (x + 0.5F)  (y + 0.5F) 0.F       0.F
-    // Starbase #0
-    let bps2, bcs2  = mkBox       100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
-    // Starbase #1
-    let bps3, bcs3  = mkBox       100.0F  0.500F 0.0F        -3.5F      -0.0065F  0.F
-    // Shipment
-    let bps4, bcs4  = mkBox       2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
+    let cps0, ccs0  = mkTriangle  1.0F    0.125F cx           cy        +0.F      0.F
+    // Starbase Alpha
+    let aps0, acs0  = mkBox       100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
+    // Starbase Beta
+    let bps0, bcs0  = mkBox       100.0F  0.500F 0.0F        -3.5F      -0.0065F  0.F
+    // Delivery
+    let dps0, dcs0  = mkBox       2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
+
+    let cf = if stiffChain then mkStick else mkRope 0.0F
 
     // Chain between ship and connector
-    let cps0, ccs0  = mkChain 3 0.5F bps0[2]  bps1[0]
+    let lps0, lcs0  = mkChain cf 3 0.5F sps0[2]  cps0[0]
     let ps =
       [|
-        yield! bps0
-        yield! bps1
-        yield! bps2
-        yield! bps3
-        yield! bps4
+        yield! sps0
+        if topHeavy then yield! sps1
         yield! cps0
+        yield! aps0
+        yield! bps0
+        yield! dps0
+        yield! lps0
       |]
 
     let cs =
       [|
-        yield! bcs0
-        yield! bcs1
-        yield! bcs2
-        yield! bcs3
-        yield! bcs4
+        yield! scs0
+        if topHeavy then yield! scs1
         yield! ccs0
+        yield! acs0
+        yield! bcs0
+        yield! dcs0
+        yield! lcs0
       |]
     let dcs =
       [|
-        mkRope 0.5F bps3[2]  bps4[0]
+        mkRope 0.5F bps0[2]  dps0[0]
       |]
-    let f = 0.001F
+    let lf = -0.001F
+    let rf = -lf*(if brokenRocket then 0.5F else 1.0F)
     let rs =
       [|
-        mkRocket bps0[1] bps0[3] +f [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
-        mkRocket bps0[3] bps0[1] -f [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
+        mkRocket sps0[1] sps0[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
+        mkRocket sps0[3] sps0[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
       |]
-    mkSystem ps cs dcs rs, bps1, bps2, bps3, bps4
+    mkSystem ps cs dcs rs, cps0, aps0, bps0, dps0
 
   module Details =
     module Loops =
@@ -305,7 +319,17 @@ module GravitySucks =
     class
       let gravity = 0.000125F
 
-      let particleSystem, connector, base0, base1, shipment = mkSolarSystem ()
+      let topHeavy        = false
+      let brokenRocket    = false
+      let extraLongChain  = false
+      let stiffChain      = false
+
+      let particleSystem, connector, alpha, beta, delivery = 
+        mkSolarSystem 
+          topHeavy 
+          brokenRocket 
+          extraLongChain
+          stiffChain
 
       let mutable state = Reset
 
@@ -314,17 +338,17 @@ module GravitySucks =
 
         match state with
         | Reset     ->
-          let struct (base1Pos    , base1Speed)     = avgPosAndSpeed base1
-          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+          let struct (betaPos     , betaSpeed)      = avgPosAndSpeed beta
+          let struct (deliveryPos , deliverySpeed)  = avgPosAndSpeed delivery
 
-          let t = base1Pos - shipmentPos
-          for p in shipment do 
+          let t = betaPos - deliveryPos
+          for p in delivery do 
             p.Translate t
-            p.Speed <- base1Speed + v2 0.01 0.00
+            p.Speed <- betaSpeed + v2 0.01 0.00
 
           particleSystem.DynamicConstraints <- 
             [|
-              mkRope 0.5F base1[2] shipment[0]
+              mkRope 0.5F beta[2] delivery[0]
             |]
 
           state <- PickingUp
@@ -332,38 +356,36 @@ module GravitySucks =
           ()
         | PickingUp ->
           let struct (connectorPos, connectorSpeed) = avgPosAndSpeed connector
-          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+          let struct (deliveryPos , deliverySpeed)  = avgPosAndSpeed delivery
 
           let posTolerance    = 0.1F
           let speedTolerance  = 1E6F
 
-          let dpos = (connectorPos    - shipmentPos   ).Length ()
-          let dspd = (connectorSpeed  - shipmentSpeed ).Length ()
-
-//          debugf "%f, %f" dpos dspd
+          let dpos = (connectorPos    - deliveryPos   ).Length ()
+          let dspd = (connectorSpeed  - deliverySpeed ).Length ()
 
           if dpos < posTolerance && dspd < speedTolerance then
             state <- Delivering
             particleSystem.DynamicConstraints <- 
               [|
-                mkRope 0.0F connector[1] shipment[0]
-                mkRope 0.0F connector[2] shipment[1]
+                mkRope 0.0F connector[1] delivery[0]
+                mkRope 0.0F connector[2] delivery[1]
               |]
           ()
         | Delivering ->
-          let struct (base0Pos    , base0Speed)     = avgPosAndSpeed base0
-          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+          let struct (alphaPos    , alphaSpeed)     = avgPosAndSpeed alpha
+          let struct (deliveryPos , deliverySpeed)  = avgPosAndSpeed delivery
 
           let posTolerance    = 0.25F
           let speedTolerance  = 1E6F
 
-          let dpos = (base0Pos    - shipmentPos   ).Length ()
-          let dspd = (base0Speed  - shipmentSpeed ).Length ()
+          let dpos = (alphaPos    - deliveryPos   ).Length ()
+          let dspd = (alphaSpeed  - deliverySpeed ).Length ()
 
           if dpos < posTolerance && dspd < speedTolerance then
             particleSystem.DynamicConstraints <- 
               [|
-                mkRope 0.0F base0[2] shipment[0]
+                mkRope 0.0F alpha[2] delivery[0]
               |]
             state <- Delivered (now () + 3000L)
         | Delivered until ->
