@@ -97,7 +97,7 @@ module GravitySucks =
     }
 
     member x.Step g k =
-      for r in x.Rockets do 
+      for r in x.Rockets do
         let f = r.ForceVector k
         let p = r.ConnectedTo
         p.Current <- p.Current - f
@@ -111,7 +111,7 @@ module GravitySucks =
         if l < x.InnerRadius then
           p.Current <- (x.InnerRadius/l)*c
 
-  let inline mkParticle m x y vx vy : Particle = 
+  let inline mkParticle m x y vx vy : Particle =
     let m = v1 m
     let c = v2 x y
     let v = v2 vx vy
@@ -142,7 +142,7 @@ module GravitySucks =
       ReverseWhen = rw
     }
 
-  let mkBox m sz x y vx vy : Particle array* Constraint array = 
+  let mkBox m sz x y vx vy : Particle array* Constraint array =
     let inline p x y = mkParticle (0.25F*m) x y vx vy
     let hsz = 0.5F*sz
     let p00 = p (x - hsz) (y - hsz)
@@ -151,7 +151,7 @@ module GravitySucks =
     let p11 = p (x + hsz) (y + hsz)
     let ps = [|p00; p01; p11; p10|]
     let inline stick i j = mkConstraint true   ps[i] ps[j]
-    let cs = 
+    let cs =
       [|
         stick 0 1
         stick 1 2
@@ -172,10 +172,10 @@ module GravitySucks =
       let diff  = s.Current - f.Current
       let diff  = diff/v1 (n + 1)
       let start = f.Current
-      let ps    = 
+      let ps    =
         let initer i = particle (start + v1 (i + 1)*diff)
         Array.init n initer
-      let cs    = 
+      let cs    =
         let initer i = rope ps[i] ps[i+1]
         Array.init (n - 1) initer
       let cs    =
@@ -206,7 +206,7 @@ module GravitySucks =
 
     let cps0, ccs0  = mkChain 3 0.5F bps0[2]  bps1[0]
     let cps1, ccs1  = mkChain 3 0.5F bps3[2]  bps4[0]
-    let ps = 
+    let ps =
       [|
         yield! bps0
         yield! bps1
@@ -217,7 +217,7 @@ module GravitySucks =
         yield! cps1
       |]
 
-    let cs = 
+    let cs =
       [|
         yield! bcs0
         yield! bcs1
@@ -277,7 +277,7 @@ module GravitySucks =
         else
           mx
 
-      let setThickness, particlePen, stickPen, ropePen, forcePen = 
+      let setThickness, particlePen, stickPen, ropePen, forcePen =
         let p = mkPen 1.0 Brushes.White
         let s = mkPen 1.0 Brushes.Yellow
         let r = mkPen 1.0 Brushes.GreenYellow
@@ -366,10 +366,10 @@ module GravitySucks =
 
     end
 
-[<EntryPoint>]                                              
+[<EntryPoint>]
 [<STAThread>]
 let main argv =
-  let window  = Window( Title = "FsVerletIntegration"
+  let window  = Window( Title = "Gravity Sucks!"
                       , Background = Brushes.Black
                       )
   let element = GravitySucks.GameElement ()
