@@ -15,8 +15,12 @@ module GravitySucks =
   type V1 = float32
   type V2 = Vector2
 
+  let debug  msg    = Debug.WriteLine msg
+  let debugf fmt    = kprintf debug fmt
+
   let inline v1 x   = float32 x
   let inline v2 x y = V2 (float32 x, float32 y)
+  let v2_0          = v2 0.F 0.F
 
   type Particle =
     {
@@ -36,6 +40,7 @@ module GravitySucks =
         let g = n/(l*l)*g
         x.Current   <- g + c + (c - x.Previous)
         x.Previous  <- c
+    member x.Speed = x.Current - x.Previous
 
   type Constraint =
     {
@@ -75,7 +80,7 @@ module GravitySucks =
 
     member x.ForceVector k =
       match k with
-      | ValueNone   -> v2 0.F 0.F
+      | ValueNone   -> v2_0
       | ValueSome k ->
         let d = V2.Normalize (x.ConnectedTo.Current - x.AnchoredTo.Current)
         let n = v2 d.Y -d.X
@@ -85,7 +90,7 @@ module GravitySucks =
         elif Array.contains k x.ReverseWhen then
           -f
         else
-          v2 0.F 0.F
+          v2_0
 
   type ParticleSystem =
     {
@@ -162,6 +167,24 @@ module GravitySucks =
       |]
     ps, cs
 
+  let mkTriangle m sz x y vx vy : Particle array* Constraint array =
+    let inline p x y = mkParticle (0.25F*m) x y vx vy
+    let xo = sz*0.5F
+    let yo = sz*0.5F/sqrt 3.0F
+    let r  = sz*1.0F/sqrt 3.0F
+    let p0 = p (x - xo) (y - yo)
+    let p1 = p (x + xo) (y - yo)
+    let p2 = p (x     ) (y + r )
+    let ps = [|p0; p1; p2|]
+    let inline stick i j = mkConstraint true   ps[i] ps[j]
+    let cs =
+      [|
+        stick 0 1
+        stick 1 2
+        stick 2 0
+      |]
+    ps, cs
+
   let mkChain n m f s : Particle array* Constraint array =
     let inline rope f s = mkConstraint false f s
     if n < 1 then
@@ -187,25 +210,30 @@ module GravitySucks =
       ps, cs
 
 
-  let inline mkSystem ps cs rs : ParticleSystem =
+  let inline mkSystem ps cs dcs rs : ParticleSystem =
     {
       InnerRadius         = 0.5F
       Particles           = ps
       Constraints         = cs
       Rockets             = rs
-      DynamicConstraints  = Array.empty
+      DynamicConstraints  = dcs
     }
 
-  let inline mkSolarSystem () =
+  let mkSolarSystem () =
     let x, y        = 4.0F, 3.0F
-    let bps0, bcs0  = mkBox 4.0F    0.250F x           y          0.F       0.F
-    let bps1, bcs1  = mkBox 2.0F    0.125F (x + 0.5F)  (y + 0.5F) 0.F       0.F
-    let bps2, bcs2  = mkBox 100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
-    let bps3, bcs3  = mkBox 100.0F  0.500F 0.0F        -3.0F      -0.0065F  0.F
-    let bps4, bcs4  = mkBox 2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
+    // Ship
+    let bps0, bcs0  = mkBox       5.0F    0.250F x           y          0.F       0.F
+    // Connector
+    let bps1, bcs1  = mkTriangle  1.0F    0.125F (x + 0.5F)  (y + 0.5F) 0.F       0.F
+    // Starbase #0
+    let bps2, bcs2  = mkBox       100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
+    // Starbase #1
+    let bps3, bcs3  = mkBox       100.0F  0.500F 0.0F        -3.0F      -0.0065F  0.F
+    // Shipment
+    let bps4, bcs4  = mkBox       2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
 
+    // Chain between ship and connector
     let cps0, ccs0  = mkChain 3 0.5F bps0[2]  bps1[0]
-    let cps1, ccs1  = mkChain 3 0.5F bps3[2]  bps4[0]
     let ps =
       [|
         yield! bps0
@@ -214,7 +242,6 @@ module GravitySucks =
         yield! bps3
         yield! bps4
         yield! cps0
-        yield! cps1
       |]
 
     let cs =
@@ -225,7 +252,10 @@ module GravitySucks =
         yield! bcs3
         yield! bcs4
         yield! ccs0
-        yield! ccs1
+      |]
+    let dcs =
+      [|
+        mkConstraint false bps3[2]  bps4[0]
       |]
     let f = 0.001F
     let rs =
@@ -233,14 +263,86 @@ module GravitySucks =
         mkRocket bps0[1] bps0[3] +f [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
         mkRocket bps0[3] bps0[1] -f [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
       |]
-    mkSystem ps cs rs
+    mkSystem ps cs dcs rs, bps1, bps2, bps3, bps4
+
+  module Details =
+    module Loops =
+      let rec avgPosAndSpeed (p : V2) (s : V2) n i (ps : Particle array) =
+        if i < ps.Length then
+          let pp = ps[i]
+          avgPosAndSpeed (p + pp.Current) (s + pp.Speed) (n + 1) (i + 1) ps
+        else
+          let f = ((1.0F)/float32 n)
+          struct (f*p, f*s)
+  open Details
+
+  let rec avgPosAndSpeed (ps : Particle array) =
+    Loops.avgPosAndSpeed ps[0].Current ps[0].Speed 1 1 ps
+
+  type GameState =
+    | PickingUp
+    | Delivering
+    | Done
+  type Game () =
+    class
+      let gravity = 0.000125F
+
+      let particleSystem, connector, base0, base1, shipment = mkSolarSystem ()
+
+      let mutable state = PickingUp
+
+      member x.Step k =
+        particleSystem.Step gravity k
+
+        match state with
+        | PickingUp ->
+          let struct (connectorPos, connectorSpeed) = avgPosAndSpeed connector
+          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+
+          let posTolerance    = 0.1F
+          let speedTolerance  = 1E6F
+
+          let dpos = (connectorPos    - shipmentPos   ).Length ()
+          let dspd = (connectorSpeed  - shipmentSpeed ).Length ()
+
+//          debugf "%f, %f" dpos dspd
+
+          if dpos < posTolerance && dspd < speedTolerance then
+            state <- Delivering
+            particleSystem.DynamicConstraints <- 
+              [|
+                mkConstraint false connector[1] shipment[0]
+                mkConstraint false connector[2] shipment[1]
+              |]
+          ()
+        | Delivering ->
+          let struct (base0Pos    , base0Speed)     = avgPosAndSpeed base0
+          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+
+          let posTolerance    = 0.25F
+          let speedTolerance  = 1E6F
+
+          let dpos = (base0Pos    - shipmentPos   ).Length ()
+          let dspd = (base0Speed  - shipmentSpeed ).Length ()
+
+          if dpos < posTolerance && dspd < speedTolerance then
+            state <- Done
+            particleSystem.DynamicConstraints <- Array.empty
+          ()
+        | Done ->
+          ()
+
+
+
+        ()
+
+      member x.ParticleSystem = particleSystem
+
+    end
 
   type GameElement () =
     class
       inherit UIElement ()
-
-      static let debug  msg = Debug.WriteLine msg
-      static let debugf fmt = kprintf debug fmt
 
       static let timeProperty =
         let pc = PropertyChangedCallback GameElement.TimePropertyChanged
@@ -265,17 +367,9 @@ module GravitySucks =
           1.0/s
         f, st
 
-      let particleSystem  = mkSolarSystem ()
-      let gravity         = 0.000125F
+      let game = Game ()
 
       let mutable pressed = ValueNone
-
-      let rec computeZoom mx i =
-        if i < particleSystem.Particles.Length then
-          let l = particleSystem.Particles[i].Current.Length()
-          computeZoom (max mx l) (i + 1)
-        else
-          mx
 
       let setThickness, particlePen, stickPen, ropePen, forcePen =
         let p = mkPen 1.0 Brushes.White
@@ -320,15 +414,14 @@ module GravitySucks =
       override x.OnRender dc =
         let inline mkPoint (v2 : V2) = Point (float v2.X, float v2.Y)
 
-//        let zoom       = 1.0/float (1.25F*computeZoom 0.F 1)
-//        x.Zoom          <-zoom
         let zoom        = x.Zoom
         let time        = x.Time
         let pix         = x.SetupTransform ()
 
         setThickness (2.0*pix)
 
-        particleSystem.Step gravity pressed
+        game.Step pressed
+        let particleSystem = game.ParticleSystem
 
         dc.PushTransform transform
 
