@@ -18,6 +18,10 @@ module GravitySucks =
   let debug  msg    = Debug.WriteLine msg
   let debugf fmt    = kprintf debug fmt
 
+  let now           =
+    let sw = Stopwatch.StartNew ()
+    fun () -> sw.ElapsedMilliseconds
+
   let inline v1 x   = float32 x
   let inline v2 x y = V2 (float32 x, float32 y)
   let v2_0          = v2 0.F 0.F
@@ -40,7 +44,12 @@ module GravitySucks =
         let g = n/(l*l)*g
         x.Current   <- g + c + (c - x.Previous)
         x.Previous  <- c
-    member x.Speed = x.Current - x.Previous
+    member x.Speed 
+      with get ()       = x.Current - x.Previous
+      and  set (s : V2) = x.Previous <- x.Current - s
+    member x.Translate off =
+      x.Current   <- x.Current + off
+      x.Previous  <- x.Previous + off
 
   type Constraint =
     {
@@ -130,10 +139,18 @@ module GravitySucks =
 
   let inline mkFixParticle x y = mkParticle infinityf x y 0.F 0.F
 
-  let inline mkConstraint s (l : Particle) (r : Particle) : Constraint =
+  let inline mkStick (l : Particle) (r : Particle) : Constraint =
     {
-      IsStick   = s
+      IsStick   = true
       Length    = (l.Current - r.Current).Length ()
+      Left      = l
+      Right     = r
+    }
+
+  let inline mkRope e (l : Particle) (r : Particle) : Constraint =
+    {
+      IsStick   = false
+      Length    = (1.0F + abs (float32 e))*(l.Current - r.Current).Length ()
       Left      = l
       Right     = r
     }
@@ -155,7 +172,7 @@ module GravitySucks =
     let p10 = p (x + hsz) (y - hsz)
     let p11 = p (x + hsz) (y + hsz)
     let ps = [|p00; p01; p11; p10|]
-    let inline stick i j = mkConstraint true   ps[i] ps[j]
+    let inline stick i j = mkStick ps[i] ps[j]
     let cs =
       [|
         stick 0 1
@@ -176,7 +193,7 @@ module GravitySucks =
     let p1 = p (x + xo) (y - yo)
     let p2 = p (x     ) (y + r )
     let ps = [|p0; p1; p2|]
-    let inline stick i j = mkConstraint true   ps[i] ps[j]
+    let inline stick i j = mkStick ps[i] ps[j]
     let cs =
       [|
         stick 0 1
@@ -186,7 +203,7 @@ module GravitySucks =
     ps, cs
 
   let mkChain n m f s : Particle array* Constraint array =
-    let inline rope f s = mkConstraint false f s
+    let inline rope f s = mkRope 0.0F f s
     if n < 1 then
       [||], [|rope f s|]
     else
@@ -228,7 +245,7 @@ module GravitySucks =
     // Starbase #0
     let bps2, bcs2  = mkBox       100.0F  0.500F 0.0F        +2.0F      +0.0075F  0.F
     // Starbase #1
-    let bps3, bcs3  = mkBox       100.0F  0.500F 0.0F        -3.0F      -0.0065F  0.F
+    let bps3, bcs3  = mkBox       100.0F  0.500F 0.0F        -3.5F      -0.0065F  0.F
     // Shipment
     let bps4, bcs4  = mkBox       2.0F    0.125F 0.5F        -3.0F      -0.0065F  0.F
 
@@ -255,7 +272,7 @@ module GravitySucks =
       |]
     let dcs =
       [|
-        mkConstraint false bps3[2]  bps4[0]
+        mkRope 0.5F bps3[2]  bps4[0]
       |]
     let f = 0.001F
     let rs =
@@ -280,21 +297,39 @@ module GravitySucks =
     Loops.avgPosAndSpeed ps[0].Current ps[0].Speed 1 1 ps
 
   type GameState =
+    | Reset
     | PickingUp
     | Delivering
-    | Done
+    | Delivered   of int64
   type Game () =
     class
       let gravity = 0.000125F
 
       let particleSystem, connector, base0, base1, shipment = mkSolarSystem ()
 
-      let mutable state = PickingUp
+      let mutable state = Reset
 
       member x.Step k =
         particleSystem.Step gravity k
 
         match state with
+        | Reset     ->
+          let struct (base1Pos    , base1Speed)     = avgPosAndSpeed base1
+          let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
+
+          let t = base1Pos - shipmentPos
+          for p in shipment do 
+            p.Translate t
+            p.Speed <- base1Speed + v2 0.01 0.00
+
+          particleSystem.DynamicConstraints <- 
+            [|
+              mkRope 0.5F base1[2] shipment[0]
+            |]
+
+          state <- PickingUp
+
+          ()
         | PickingUp ->
           let struct (connectorPos, connectorSpeed) = avgPosAndSpeed connector
           let struct (shipmentPos , shipmentSpeed)  = avgPosAndSpeed shipment
@@ -311,8 +346,8 @@ module GravitySucks =
             state <- Delivering
             particleSystem.DynamicConstraints <- 
               [|
-                mkConstraint false connector[1] shipment[0]
-                mkConstraint false connector[2] shipment[1]
+                mkRope 0.0F connector[1] shipment[0]
+                mkRope 0.0F connector[2] shipment[1]
               |]
           ()
         | Delivering ->
@@ -326,11 +361,16 @@ module GravitySucks =
           let dspd = (base0Speed  - shipmentSpeed ).Length ()
 
           if dpos < posTolerance && dspd < speedTolerance then
-            state <- Done
-            particleSystem.DynamicConstraints <- Array.empty
-          ()
-        | Done ->
-          ()
+            particleSystem.DynamicConstraints <- 
+              [|
+                mkRope 0.0F base0[2] shipment[0]
+              |]
+            state <- Delivered (now () + 3000L)
+        | Delivered until ->
+          if now () < until then
+            ()
+          else
+            state <- Reset
 
 
 
@@ -462,8 +502,8 @@ module GravitySucks =
 [<EntryPoint>]
 [<STAThread>]
 let main argv =
-  let window  = Window( Title = "Gravity Sucks!"
-                      , Background = Brushes.Black
+  let window  = Window( Title       = "Gravity Sucks!"
+                      , Background  = Brushes.Black
                       )
   let element = GravitySucks.GameElement ()
   window.Content    <- element
