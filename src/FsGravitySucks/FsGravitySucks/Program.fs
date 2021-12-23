@@ -250,13 +250,13 @@ module GravitySucks =
     let sps1 = [| mkParticle 2.0F (x - 0.25F) (y - 0.25F) 0.0F 0.0F |]
     let scs1 = [| mkStick sps0[1] sps1[0]; mkStick sps0[3] sps1[0] |]
     // Connector
-    let cps0, ccs0  = mkTriangle  1.0F    0.125F  cx     cy   +0.F      0.F
+    let cps0, ccs0  = mkTriangle  1.0F    0.125F  cx     cy     +0.F      0.F
     // Starbase Alpha
-    let aps0, acs0  = mkBox       100.0F  0.500F  0.0F  +2.0F +0.0075F  0.F
+    let aps0, acs0  = mkBox       100.0F  0.500F  0.0F  +2.0F   +0.0075F  0.F
     // Starbase Beta
-    let bps0, bcs0  = mkBox       100.0F  0.500F  0.0F  -3.5F -0.0065F  0.F
+    let bps0, bcs0  = mkBox       100.0F  0.500F  0.0F  -3.25F  -0.0065F  0.F
     // Delivery
-    let dps0, dcs0  = mkBox       dm      dsz     0.5F  -3.0F -0.0065F  0.F
+    let dps0, dcs0  = mkBox       dm      dsz     0.5F  -3.0F   -0.0065F  0.F
 
     let cf = if stiffChain then mkStick else mkRope 0.0F
 
