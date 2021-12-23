@@ -35,18 +35,17 @@ module GravitySucks =
       mutable Previous  : V2
     }
 
-    member x.Step (g : V1) =
+    member x.Step (gravity : V1) =
       if x.InvertedMass > 0.0F then
         let c = x.Current
         let d = -c
         let l = d.Length ()
-        let n = d/l
-        let g = n/(l*l)*g
+        let g = d*gravity/(l*l*l)
         x.Current   <- g + c + (c - x.Previous)
         x.Previous  <- c
     member x.Speed 
-      with get ()       = x.Current - x.Previous
-      and  set (s : V2) = x.Previous <- x.Current - s
+      with get ()         = x.Current - x.Previous
+      and  set (spd : V2) = x.Previous <- x.Current - spd
     member x.Translate off =
       x.Current   <- x.Current + off
       x.Previous  <- x.Previous + off
@@ -87,22 +86,23 @@ module GravitySucks =
       ReverseWhen : Key       array
     }
 
-    member x.ForceVector k =
-      match k with
+    member x.ForceVector key =
+      match key with
       | ValueNone   -> v2_0
-      | ValueSome k ->
+      | ValueSome key ->
         let d = V2.Normalize (x.ConnectedTo.Current - x.AnchoredTo.Current)
         let n = v2 d.Y -d.X
         let f = x.Force*n
-        if Array.contains k x.ForwardWhen then
+        if Array.contains key x.ForwardWhen then
           f
-        elif Array.contains k x.ReverseWhen then
+        elif Array.contains key x.ReverseWhen then
           -f
         else
           v2_0
 
   type ParticleSystem =
     {
+      Gravity                     : V1
       InnerRadius                 : V1
       Particles                   : Particle    array
       Constraints                 : Constraint  array
@@ -110,23 +110,31 @@ module GravitySucks =
       mutable DynamicConstraints  : Constraint  array
     }
 
-    member x.Step g k =
+    member x.Step key =
+      let g = x.Gravity
+      // Apply rocket force (if any)
       for r in x.Rockets do
-        let f = r.ForceVector k
+        let f = r.ForceVector key
         let p = r.ConnectedTo
         p.Current <- p.Current + f
+      // Step particles to next position
       for p in x.Particles do p.Step g
+      // Relax constraints
       for i = 0 to 4 do
         for c in x.Constraints        do c.Relax ()
         for c in x.DynamicConstraints do c.Relax ()
+      // Check collision with sun
+      let mutable collision = false
       for p in x.Particles do
         let c = p.Current
         let l = c.Length ()
         if l < x.InnerRadius then
           p.Current <- (x.InnerRadius/l)*c
+          collision <- true
+      collision
 
-  let inline mkParticle m x y vx vy : Particle =
-    let m = v1 m
+  let inline mkParticle mass x y vx vy : Particle =
+    let m = v1 mass
     let c = v2 x y
     let v = v2 vx vy
     {
@@ -147,26 +155,31 @@ module GravitySucks =
       Right     = r
     }
 
-  let inline mkRope e (l : Particle) (r : Particle) : Constraint =
+  let inline mkRope extraLength (l : Particle) (r : Particle) : Constraint =
     {
       IsStick   = false
-      Length    = (1.0F + abs (float32 e))*(l.Current - r.Current).Length ()
+      Length    = (1.0F + abs (float32 extraLength))*(l.Current - r.Current).Length ()
       Left      = l
       Right     = r
     }
 
-  let mkRocket cto ato f fw rw : Rocket =
+  let mkRocket 
+    connectedTo 
+    anchoredTo 
+    force 
+    forwardWhen 
+    reverseWhen   : Rocket =
     {
-      ConnectedTo = cto
-      AnchoredTo  = ato
-      Force       = f
-      ForwardWhen = fw
-      ReverseWhen = rw
+      ConnectedTo = connectedTo
+      AnchoredTo  = anchoredTo 
+      Force       = force      
+      ForwardWhen = forwardWhen
+      ReverseWhen = reverseWhen
     }
 
-  let mkBox m sz x y vx vy : Particle array* Constraint array =
-    let inline p x y = mkParticle (0.25F*m) x y vx vy
-    let hsz = 0.5F*sz
+  let mkBox mass size x y vx vy : Particle array* Constraint array =
+    let inline p x y = mkParticle (0.25F*mass) x y vx vy
+    let hsz = 0.5F*size
     let p00 = p (x - hsz) (y - hsz)
     let p01 = p (x - hsz) (y + hsz)
     let p10 = p (x + hsz) (y - hsz)
@@ -184,11 +197,11 @@ module GravitySucks =
       |]
     ps, cs
 
-  let mkTriangle m sz x y vx vy : Particle array* Constraint array =
-    let inline p x y = mkParticle (0.25F*m) x y vx vy
-    let xo = sz*0.5F
-    let yo = sz*0.5F/sqrt 3.0F
-    let r  = sz*1.0F/sqrt 3.0F
+  let mkTriangle mass size x y vx vy : Particle array* Constraint array =
+    let inline p x y = mkParticle (mass/3.0F) x y vx vy
+    let xo = size*0.5F
+    let yo = size*0.5F/sqrt 3.0F
+    let r  = size*1.0F/sqrt 3.0F
     let p0 = p (x - xo) (y - yo)
     let p1 = p (x + xo) (y - yo)
     let p2 = p (x     ) (y + r )
@@ -202,45 +215,56 @@ module GravitySucks =
       |]
     ps, cs
 
-  let mkChain cf n m f s : Particle array* Constraint array =
+  let mkChain constraintFactory n mass b e : Particle array* Constraint array =
     if n < 1 then
-      [||], [|cf f s|]
+      [||], [|constraintFactory b e|]
     else
-      let m     = m/v1 n
+      let m     = mass/v1 n
       let inline particle (v : V2) = mkParticle m v.X v.Y 0 0
-      let diff  = s.Current - f.Current
+      let diff  = e.Current - b.Current
       let diff  = diff/v1 (n + 1)
-      let start = f.Current
+      let start = b.Current
       let ps    =
         let initer i = particle (start + v1 (i + 1)*diff)
         Array.init n initer
       let cs    =
-        let initer i = cf ps.[i] ps.[i+1]
+        let initer i = constraintFactory ps.[i] ps.[i+1]
         Array.init (n - 1) initer
       let cs    =
         [|
-          cf f ps.[0]
+          constraintFactory b ps.[0]
           yield! cs
-          cf s ps.[n-1]
+          constraintFactory e ps.[n-1]
         |]
       ps, cs
 
-  let inline mkSystem ir ps cs dcs rs : ParticleSystem =
+  let inline mkSystem 
+    gravity           
+    innerRadius       
+    particles         
+    constraints       
+    rockets           
+    dynamicConstraints  : ParticleSystem =
     {
-      InnerRadius         = ir
-      Particles           = ps
-      Constraints         = cs
-      Rockets             = rs
-      DynamicConstraints  = dcs
+      Gravity             = gravity           
+      InnerRadius         = innerRadius       
+      Particles           = particles         
+      Constraints         = constraints       
+      Rockets             = rockets           
+      DynamicConstraints  = dynamicConstraints
     }
 
+  type ConnectorMode =
+    | Sticked
+    | Roped
+    | Fixed
+
   let mkSolarSystem 
-      topHeavy 
-      brokenRocket 
-      extraLongChain 
-      stiffChain
-      bigDelivery
-      =
+    topHeavy 
+    brokenRocket 
+    extraLongChain 
+    connectorMode
+    bigDelivery       =
     let x , y   = 4.0F, 3.0F
     let coff    = if extraLongChain then 1.0F else 0.5F
     let cx, cy  = x + coff, y + coff
@@ -258,10 +282,15 @@ module GravitySucks =
     // Delivery
     let dps0, dcs0  = mkBox       dm      dsz     0.5F  -3.0F   -0.0065F  0.F
 
-    let cf = if stiffChain then mkStick else mkRope 0.0F
-
-    // Chain between ship and connector
-    let lps0, lcs0  = mkChain cf 3 0.5F sps0.[2]  cps0.[0]
+    let lps0, lcs0  = 
+      match connectorMode with
+      | Sticked ->
+        [||], [|mkStick sps0.[2] cps0.[0]|]
+      | Roped   ->
+        // Chain between ship and connector
+        mkChain (mkRope 0.0F) 3 0.5F sps0.[2]  cps0.[0]
+      | Fixed ->
+        [||], [|mkStick sps0.[3] cps0.[0];mkStick sps0.[1] cps0.[0]|]
     let ps =
       [|
         yield! sps0
@@ -294,7 +323,7 @@ module GravitySucks =
         mkRocket sps0.[1] sps0.[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
         mkRocket sps0.[3] sps0.[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
       |]
-    mkSystem 0.4F ps cs dcs rs, cps0, aps0, bps0, dps0
+    mkSystem 0.000125F 0.4F ps cs rs dcs, cps0, aps0, bps0, dps0
 
   module Details =
     module Loops =
@@ -307,7 +336,7 @@ module GravitySucks =
           struct (f*p, f*s)
   open Details
 
-  let rec avgPosAndSpeed (ps : Particle array) =
+  let avgPosAndSpeed (ps : Particle array) =
     Loops.avgPosAndSpeed ps.[0].Current ps.[0].Speed 1 1 ps
 
   type GameState =
@@ -315,28 +344,27 @@ module GravitySucks =
     | PickingUp
     | Delivering
     | Delivered   of int64
+
   type Game () =
     class
-      let gravity = 0.000125F
-
-      let topHeavy        = false
-      let brokenRocket    = false
-      let extraLongChain  = false
-      let stiffChain      = false
-      let bigDelivery     = false
+      let topHeavy          = false
+      let brokenRocket      = false
+      let extraLongChain    = false
+      let connectorMode     = Roped
+      let bigDelivery       = false
 
       let particleSystem, connector, alpha, beta, delivery = 
         mkSolarSystem 
           topHeavy 
           brokenRocket 
           extraLongChain
-          stiffChain
+          connectorMode
           bigDelivery
 
       let mutable state = Reset
 
-      member x.Step k =
-        particleSystem.Step gravity k
+      member x.Step key =
+        let collision = particleSystem.Step key
 
         match state with
         | Reset     ->
@@ -396,10 +424,6 @@ module GravitySucks =
           else
             state <- Reset
 
-
-
-        ()
-
       member x.ParticleSystem = particleSystem
 
     end
@@ -431,7 +455,7 @@ module GravitySucks =
           1.0/s
         f, st
 
-      let game = Game ()
+      let mutable game = Game ()
 
       let mutable pressed = ValueNone
 
@@ -474,6 +498,8 @@ module GravitySucks =
 
       override x.OnKeyUp e =
         pressed <- ValueNone
+        if e.Key = Key.R then
+          game <- Game ()
 
       override x.OnRender dc =
         let inline mkPoint (v2 : V2) = Point (float v2.X, float v2.Y)
