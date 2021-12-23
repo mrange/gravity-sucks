@@ -225,9 +225,9 @@ module GravitySucks =
         |]
       ps, cs
 
-  let inline mkSystem ps cs dcs rs : ParticleSystem =
+  let inline mkSystem ir ps cs dcs rs : ParticleSystem =
     {
-      InnerRadius         = 0.5F
+      InnerRadius         = ir
       Particles           = ps
       Constraints         = cs
       Rockets             = rs
@@ -294,7 +294,7 @@ module GravitySucks =
         mkRocket sps0[1] sps0[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
         mkRocket sps0[3] sps0[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
       |]
-    mkSystem ps cs dcs rs, cps0, aps0, bps0, dps0
+    mkSystem 0.4F ps cs dcs rs, cps0, aps0, bps0, dps0
 
   module Details =
     module Loops =
