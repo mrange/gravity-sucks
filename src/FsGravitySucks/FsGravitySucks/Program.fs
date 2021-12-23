@@ -172,7 +172,7 @@ module GravitySucks =
     let p10 = p (x + hsz) (y - hsz)
     let p11 = p (x + hsz) (y + hsz)
     let ps = [|p00; p01; p11; p10|]
-    let inline stick i j = mkStick ps[i] ps[j]
+    let inline stick i j = mkStick ps.[i] ps.[j]
     let cs =
       [|
         stick 0 1
@@ -193,7 +193,7 @@ module GravitySucks =
     let p1 = p (x + xo) (y - yo)
     let p2 = p (x     ) (y + r )
     let ps = [|p0; p1; p2|]
-    let inline stick i j = mkStick ps[i] ps[j]
+    let inline stick i j = mkStick ps.[i] ps.[j]
     let cs =
       [|
         stick 0 1
@@ -215,13 +215,13 @@ module GravitySucks =
         let initer i = particle (start + v1 (i + 1)*diff)
         Array.init n initer
       let cs    =
-        let initer i = cf ps[i] ps[i+1]
+        let initer i = cf ps.[i] ps.[i+1]
         Array.init (n - 1) initer
       let cs    =
         [|
-          cf f ps[0]
+          cf f ps.[0]
           yield! cs
-          cf s ps[n-1]
+          cf s ps.[n-1]
         |]
       ps, cs
 
@@ -248,7 +248,7 @@ module GravitySucks =
     // Ship
     let sps0, scs0  = mkBox       5.0F    0.250F x           y          +0.F      0.F
     let sps1 = [| mkParticle 2.0F (x - 0.25F) (y - 0.25F) 0.0F 0.0F |]
-    let scs1 = [| mkStick sps0[1] sps1[0]; mkStick sps0[3] sps1[0] |]
+    let scs1 = [| mkStick sps0.[1] sps1.[0]; mkStick sps0.[3] sps1.[0] |]
     // Connector
     let cps0, ccs0  = mkTriangle  1.0F    0.125F  cx     cy     +0.F      0.F
     // Starbase Alpha
@@ -261,7 +261,7 @@ module GravitySucks =
     let cf = if stiffChain then mkStick else mkRope 0.0F
 
     // Chain between ship and connector
-    let lps0, lcs0  = mkChain cf 3 0.5F sps0[2]  cps0[0]
+    let lps0, lcs0  = mkChain cf 3 0.5F sps0.[2]  cps0.[0]
     let ps =
       [|
         yield! sps0
@@ -285,14 +285,14 @@ module GravitySucks =
       |]
     let dcs =
       [|
-        mkRope 0.5F bps0[2]  dps0[0]
+        mkRope 0.5F bps0.[2]  dps0.[0]
       |]
     let lf = -0.001F
     let rf = -lf*(if brokenRocket then 0.5F else 1.0F)
     let rs =
       [|
-        mkRocket sps0[1] sps0[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
-        mkRocket sps0[3] sps0[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
+        mkRocket sps0.[1] sps0.[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
+        mkRocket sps0.[3] sps0.[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
       |]
     mkSystem 0.4F ps cs dcs rs, cps0, aps0, bps0, dps0
 
@@ -300,7 +300,7 @@ module GravitySucks =
     module Loops =
       let rec avgPosAndSpeed (p : V2) (s : V2) n i (ps : Particle array) =
         if i < ps.Length then
-          let pp = ps[i]
+          let pp = ps.[i]
           avgPosAndSpeed (p + pp.Current) (s + pp.Speed) (n + 1) (i + 1) ps
         else
           let f = ((1.0F)/float32 n)
@@ -308,7 +308,7 @@ module GravitySucks =
   open Details
 
   let rec avgPosAndSpeed (ps : Particle array) =
-    Loops.avgPosAndSpeed ps[0].Current ps[0].Speed 1 1 ps
+    Loops.avgPosAndSpeed ps.[0].Current ps.[0].Speed 1 1 ps
 
   type GameState =
     | Reset
@@ -350,7 +350,7 @@ module GravitySucks =
 
           particleSystem.DynamicConstraints <- 
             [|
-              mkRope 0.5F beta[2] delivery[0]
+              mkRope 0.5F beta.[2] delivery.[0]
             |]
 
           state <- PickingUp
@@ -370,8 +370,8 @@ module GravitySucks =
             state <- Delivering
             particleSystem.DynamicConstraints <- 
               [|
-                mkRope 0.0F connector[1] delivery[0]
-                mkRope 0.0F connector[2] delivery[1]
+                mkRope 0.0F connector.[1] delivery.[0]
+                mkRope 0.0F connector.[2] delivery.[1]
               |]
           ()
         | Delivering ->
@@ -387,7 +387,7 @@ module GravitySucks =
           if dpos < posTolerance && dspd < speedTolerance then
             particleSystem.DynamicConstraints <- 
               [|
-                mkRope 0.0F alpha[2] delivery[0]
+                mkRope 0.0F alpha.[2] delivery.[0]
               |]
             state <- Delivered (now () + 3000L)
         | Delivered until ->
