@@ -259,11 +259,23 @@ module GravitySucks =
     | Roped
     | Fixed
 
+  type RocketMode =
+    | JustRight
+    | TooMuch
+    | Reverse
+    | Broken
+
+  type SteeringMode =
+    | Normal
+    | Top
+    | Bottom
+
   let mkSolarSystem 
     topHeavy 
-    brokenRocket 
     extraLongChain 
     connectorMode
+    rocketMode
+    steeringMode
     bigDelivery       =
     let x , y   = 4.0F, 3.0F
     let coff    = if extraLongChain then 1.0F else 0.5F
@@ -316,13 +328,32 @@ module GravitySucks =
       [|
         mkRope 0.5F bps0.[2]  dps0.[0]
       |]
-    let lf = -0.001F
-    let rf = -lf*(if brokenRocket then 0.5F else 1.0F)
+    let bf      = -0.001F
+    let lf, rf  =
+      match rocketMode with
+      | JustRight -> +bf  , -bf
+      | Reverse   -> -bf  , +bf
+      | Broken    -> +bf  , -0.5F*bf
+      | TooMuch   -> let bf = 10.0F*bf in bf, -bf
     let rs =
-      [|
-        mkRocket sps0.[1] sps0.[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
-        mkRocket sps0.[3] sps0.[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
-      |]
+      match steeringMode with
+      | Normal ->
+        [|
+          mkRocket sps0.[1] sps0.[3] lf [|Key.Up;Key.Right|] [|Key.Down;Key.Left|]
+          mkRocket sps0.[3] sps0.[1] rf [|Key.Up;Key.Left|]  [|Key.Down;Key.Right|]
+        |]
+      | Top ->
+        [|
+          mkRocket sps0.[1] sps0.[3] lf         [|Key.Up|]    [|Key.Down|]
+          mkRocket sps0.[3] sps0.[1] rf         [|Key.Up|]    [|Key.Down|]
+          mkRocket sps0.[0] sps0.[2] (1.5F*rf)  [|Key.Left|]  [|Key.Right|]
+        |]
+      | Bottom ->
+        [|
+          mkRocket sps0.[1] sps0.[3] lf         [|Key.Up|]    [|Key.Down|]
+          mkRocket sps0.[3] sps0.[1] rf         [|Key.Up|]    [|Key.Down|]
+          mkRocket sps0.[2] sps0.[0] (1.5F*rf)  [|Key.Left|]  [|Key.Right|]
+        |]
     mkSystem 0.000125F 0.4F ps cs rs dcs, cps0, aps0, bps0, dps0
 
   module Details =
@@ -348,17 +379,19 @@ module GravitySucks =
   type Game () =
     class
       let topHeavy          = false
-      let brokenRocket      = false
       let extraLongChain    = false
-      let connectorMode     = Roped
+      let connectorMode     = Sticked
+      let rocketMode        = JustRight
+      let steeringMode      = Bottom
       let bigDelivery       = false
 
       let particleSystem, connector, alpha, beta, delivery = 
         mkSolarSystem 
           topHeavy 
-          brokenRocket 
           extraLongChain
           connectorMode
+          rocketMode
+          steeringMode
           bigDelivery
 
       let mutable state = Reset
