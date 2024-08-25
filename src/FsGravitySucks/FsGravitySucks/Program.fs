@@ -380,9 +380,9 @@ module GravitySucks =
     class
       let topHeavy          = false
       let extraLongChain    = false
-      let connectorMode     = Sticked
+      let connectorMode     = Roped
       let rocketMode        = JustRight
-      let steeringMode      = Bottom
+      let steeringMode      = Normal
       let bigDelivery       = false
 
       let particleSystem, connector, alpha, beta, delivery = 
